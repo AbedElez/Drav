@@ -1,0 +1,29 @@
+import type { Metadata } from 'next'
+import './globals.css'
+import { ThemeProvider } from '@/contexts/ThemeContext'
+
+export const metadata: Metadata = {
+  title: 'Drav - All intelligence, all at once',
+  description: 'Compare answers from OpenAI, Anthropic, and Google Gemini',
+  icons: {
+    icon: '/favicon.svg',
+    shortcut: '/favicon.svg',
+    apple: '/favicon.svg',
+  },
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+        <html lang="en" suppressHydrationWarning>
+          <body className="font-sans">
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
+      </body>
+    </html>
+  )
+}
