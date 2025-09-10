@@ -280,7 +280,7 @@ export default function ChatPage() {
         <div className="mx-auto max-w-4xl px-6 py-8">
           {messages.length === 0 ? (
             <div className="text-center py-12">
-              <div className="text-6xl mb-4">▲▼</div>
+              <div className="text-6xl mb-4 text-black dark:text-white">▲▼</div>
               <h1 className="text-2xl font-medium text-gray-900 dark:text-white mb-2">
                 Drav Chat
               </h1>
