@@ -237,7 +237,7 @@ export default function ChatPage() {
   const getModelName = (modelId: string) => {
     if (modelId.includes("claude")) return "Claude 3.5 Sonnet";
     if (modelId.includes("gpt")) return "GPT-4o";
-    if (modelId.includes("gemini")) return "Gemini 1.5 Pro";
+    if (modelId.includes("gemini")) return "Gemini Flash";
     return modelId;
   };
 
@@ -327,7 +327,7 @@ export default function ChatPage() {
                     
                     {/* AI responses - horizontal layout */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                      {["claude-3-5", "gpt-4o", "gemini-1.5-pro"].map((modelId) => {
+                      {["claude-3-5", "gpt-4o", "gemini-flash-latest"].map((modelId) => {
                         const modelMessage = turn.assistants.find(m => m.modelId === modelId);
                         const isWaiting = isLoading && !modelMessage;
                         

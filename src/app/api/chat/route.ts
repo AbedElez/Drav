@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
           handleResponse("claude-3-5", { modelId: "claude-3-5", text: "", error: error.message, latencyMs: Date.now() - startTime });
         });
         
-        askGemini(message).then(response => handleResponse("gemini-1.5-pro", response)).catch(error => 
-          handleResponse("gemini-1.5-pro", { modelId: "gemini-1.5-pro", text: "", error: error.message, latencyMs: Date.now() - startTime })
+        askGemini(message).then(response => handleResponse("gemini-flash-latest", response)).catch(error => 
+          handleResponse("gemini-flash-latest", { modelId: "gemini-flash-latest", text: "", error: error.message, latencyMs: Date.now() - startTime })
         );
       }
     });

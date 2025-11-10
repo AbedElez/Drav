@@ -278,7 +278,7 @@ export default function ResultsPage() {
         <div className="space-y-8">
           {(() => {
             // Sort models by latency (fastest first) when data is available
-            const modelIds = ["gpt-4o", "claude-3-5", "gemini-1.5-pro"];
+            const modelIds = ["gpt-4o", "claude-3-5", "gemini-flash-latest"];
             
             if (data && data.length > 0) {
               // Create array with model IDs and their latencies
@@ -341,7 +341,7 @@ function pretty(id: string) {
 function getModelName(id: string) {
   if (id.includes("claude")) return "Claude 3.5 Sonnet";
   if (id.includes("gpt")) return "GPT-4o";
-  if (id.includes("gemini")) return "Gemini 1.5 Pro";
+  if (id.includes("gemini")) return "Gemini Flash";
   return id;
 }
 
