@@ -1,6 +1,6 @@
 # Drav
 
-Drav is a multi-model AI search and chat app built with Next.js. It compares answers from OpenAI, Anthropic, and Gemini in real time and displays responses side-by-side.
+Drav is a multi-model AI search app built with Next.js. It compares answers from OpenAI, Anthropic, and Gemini in real time and displays responses side-by-side.
 
 ## Disclaimer
 
@@ -37,11 +37,15 @@ npm run dev
 | `OPENAI_API_KEY` | OpenAI API key | Yes |
 | `ANTHROPIC_API_KEY` | Anthropic API key | Yes |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini API key | Yes |
+| `OPENAI_MODEL` | OpenAI model for answers (default: `gpt-4.1`) | No |
+| `ANTHROPIC_MODEL` | Anthropic model for answers (default: `claude-3-7-sonnet-latest`) | No |
+| `GEMINI_MODEL` | Gemini model for answers (default: `gemini-2.5-flash`) | No |
+| `OPENAI_SUGGESTIONS_MODEL` | OpenAI model for autocomplete (default: `gpt-4.1-mini`) | No |
+| `GEMINI_SUGGESTIONS_MODEL` | Gemini model for autocomplete (default: `gemini-2.5-flash`) | No |
 
 ## Features
 
 - Side-by-side model comparison on `/results`
-- Multi-model chat UI on `/chat`
 - Streaming model responses via SSE
 - Hybrid autocomplete (local + provider-backed suggestions)
 - Light/dark/system theme support
@@ -53,11 +57,9 @@ src/
   app/
     page.tsx
     results/page.tsx
-    chat/page.tsx
     api/
       answers/route.ts
       answers/stream/route.ts
-      chat/route.ts
       suggestions/route.ts
   components/
   contexts/

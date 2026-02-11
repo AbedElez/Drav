@@ -70,7 +70,9 @@ type Answer = {
   modelId: string;
   text: string;
   latencyMs: number;
+  providerModel?: string;
   error?: string;
+  isStreaming?: boolean;
 };
 
 export default function ResultsPage() {
@@ -78,6 +80,7 @@ export default function ResultsPage() {
   const router = useRouter();
   const q = sp.get("q") ?? "";
   const [data, setData] = useState<Answer[] | null>(null);
+  const [modelSelections, setModelSelections] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [localQ, setLocalQ] = useState(q);
   const {
@@ -95,6 +98,7 @@ export default function ResultsPage() {
     if (!q) return;
     setLoading(true);
     setData(null);
+    setModelSelections({});
 
     const abortController = new AbortController();
     let active = true;
@@ -105,16 +109,75 @@ export default function ResultsPage() {
 
       if (event.type === "start") {
         setData([]);
+        if (event.models && typeof event.models === "object") {
+          setModelSelections(event.models);
+        }
         return;
       }
 
-      if (event.type === "response") {
+      if (event.type === "response_start") {
         setData((prevData) => {
-          const existingIndex = prevData?.findIndex((r) => r.modelId === event.response.modelId) ?? -1;
+          const existing = (prevData || []).find((r) => r.modelId === event.modelId);
+          if (existing) return prevData;
+          return [
+            ...(prevData || []),
+            { modelId: event.modelId, text: "", latencyMs: 0, isStreaming: true },
+          ];
+        });
+        return;
+      }
+
+      if (event.type === "response_delta") {
+        setData((prevData) => {
+          const rows = [...(prevData || [])];
+          const existingIndex = rows.findIndex((r) => r.modelId === event.modelId);
           if (existingIndex >= 0) {
-            return prevData;
+            const existing = rows[existingIndex];
+            rows[existingIndex] = {
+              ...existing,
+              text: `${existing.text || ""}${event.delta || ""}`,
+              isStreaming: true,
+            };
+            return rows;
           }
-          return [...(prevData || []), event.response];
+
+          return [
+            ...rows,
+            {
+              modelId: event.modelId,
+              text: event.delta || "",
+              latencyMs: 0,
+              isStreaming: true,
+            },
+          ];
+        });
+        return;
+      }
+
+      if (event.type === "response_complete") {
+        setData((prevData) => {
+          const rows = [...(prevData || [])];
+          const existingIndex = rows.findIndex((r) => r.modelId === event.modelId);
+          const existing = existingIndex >= 0 ? rows[existingIndex] : null;
+          const response = event.response || {};
+          const finalText =
+            response.text && response.text.length > (existing?.text?.length || 0)
+              ? response.text
+              : existing?.text || response.text || "";
+
+          const merged: Answer = {
+            modelId: event.modelId,
+            text: finalText,
+            latencyMs: response.latencyMs || existing?.latencyMs || 0,
+            error: response.error,
+            isStreaming: false,
+          };
+
+          if (existingIndex >= 0) {
+            rows[existingIndex] = merged;
+            return rows;
+          }
+          return [...rows, merged];
         });
         return;
       }
@@ -283,55 +346,36 @@ export default function ResultsPage() {
       </header>
 
       <main className="mx-auto max-w-7xl px-6 py-12">
-        <div className="space-y-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {(() => {
-            // Sort models by latency (fastest first) when data is available
             const modelIds = ["gpt-4o", "claude-3-5", "gemini-flash-latest"];
-            
-            if (data && data.length > 0) {
-              // Create array with model IDs and their latencies
-              const modelsWithLatency = modelIds.map(id => {
-                const modelData = data.find(d => d.modelId === id);
-                return {
-                  id,
-                  latency: modelData?.latencyMs || Infinity, // Use Infinity for models without data
-                  data: modelData
-                };
-              });
-              
-              // Sort by latency (fastest first)
-              modelsWithLatency.sort((a, b) => a.latency - b.latency);
-              
-              return modelsWithLatency.map(({ id, data: modelData }) => {
-                const isLoading = loading && !modelData;
-                
-                return (
-                  <div key={id} className="group">
-                    {isLoading ? (
-                      <LoadingSkeleton id={id} />
-                    ) : (
-                      <ModelRow id={id} data={modelData || null} query={q} />
-                    )}
-                  </div>
-                );
-              });
-            } else {
-              // Show in default order while loading
-              return modelIds.map((id) => {
-                const modelData = data?.find((d) => d.modelId === id);
-                const isLoading = loading && !modelData;
-                
-                return (
-                  <div key={id} className="group">
-                    {isLoading ? (
-                      <LoadingSkeleton id={id} />
-                    ) : (
-                      <ModelRow id={id} data={modelData || null} query={q} />
-                    )}
-                  </div>
-                );
-              });
-            }
+            const modelsWithLatency = modelIds.map((id) => {
+              const modelData = data?.find((d) => d.modelId === id) || null;
+              return {
+                id,
+                latency: modelData?.latencyMs || Infinity,
+                data: modelData,
+              };
+            });
+
+            modelsWithLatency.sort((a, b) => a.latency - b.latency);
+
+            return modelsWithLatency.map(({ id, data: modelData }) => {
+              const isLoading =
+                loading &&
+                (!modelData || (!!modelData.isStreaming && !modelData.text && !modelData.error));
+              const selectedModel = modelData?.providerModel || modelSelections[id];
+
+              return (
+                <div key={id} className="group">
+                  {isLoading ? (
+                    <LoadingSkeleton id={id} providerModel={selectedModel} />
+                  ) : (
+                    <ModelCard id={id} data={modelData || null} query={q} providerModel={selectedModel} />
+                  )}
+                </div>
+              );
+            });
           })()}
         </div>
       </main>
@@ -347,100 +391,98 @@ function pretty(id: string) {
 }
 
 function getModelName(id: string) {
-  if (id.includes("claude")) return "Claude 3.5 Sonnet";
-  if (id.includes("gpt")) return "GPT-4o";
-  if (id.includes("gemini")) return "Gemini Flash";
+  if (id.includes("claude")) return "Claude";
+  if (id.includes("gpt")) return "OpenAI";
+  if (id.includes("gemini")) return "Gemini";
   return id;
 }
 
-function LoadingSkeleton({ id }: { id: string }) {
+function LoadingSkeleton({ id, providerModel }: { id: string; providerModel?: string }) {
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-2xl p-6 bg-gray-50/20 dark:bg-gray-900/20 group-hover:bg-gray-50/30 dark:group-hover:bg-gray-900/30 transition-colors duration-300 min-h-[200px]">
-      <div className="flex items-start gap-6">
-        {/* Model Header - Fixed width sidebar */}
-        <div className="flex-shrink-0 w-48">
-          <div className="mb-4">
-            <div className="text-base font-medium text-gray-900 dark:text-white">
-              {pretty(id)}
-            </div>
-            <div className="text-xs text-gray-400 dark:text-gray-500 font-light">
-              {getModelName(id)}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 mb-4">
-            <div className="w-1.5 h-1.5 bg-gray-300/60 dark:bg-gray-600/60 rounded-full animate-pulse"></div>
-            <div className="w-1.5 h-1.5 bg-gray-300/60 dark:bg-gray-600/60 rounded-full animate-pulse" style={{animationDelay: '0.2s'}}></div>
-            <div className="w-1.5 h-1.5 bg-gray-300/60 dark:bg-gray-600/60 rounded-full animate-pulse" style={{animationDelay: '0.4s'}}></div>
-          </div>
-          <div className="pt-4 border-t border-gray-100/60 dark:border-gray-800/60">
-            <Skeleton className="h-3 w-24 rounded" />
-          </div>
+    <div className="border border-gray-200 dark:border-gray-700 rounded-2xl p-5 bg-gray-50/20 dark:bg-gray-900/20 group-hover:bg-gray-50/30 dark:group-hover:bg-gray-900/30 transition-colors duration-300 min-h-[360px]">
+      <div className="mb-4">
+        <div className="text-base font-medium text-gray-900 dark:text-white">
+          {pretty(id)}
         </div>
-        
-        {/* Content Area - Flexible width */}
-        <div className="flex-1 min-w-0">
-          <div className="space-y-3">
-            <Skeleton className="h-3 w-full rounded" />
-            <Skeleton className="h-3 w-full rounded" />
-            <Skeleton className="h-3 w-3/4 rounded" />
-            <Skeleton className="h-3 w-full rounded" />
-            <Skeleton className="h-3 w-5/6 rounded" />
-            <Skeleton className="h-3 w-2/3 rounded" />
-            <Skeleton className="h-3 w-full rounded" />
-            <Skeleton className="h-3 w-4/5 rounded" />
-          </div>
+        <div className="text-xs text-gray-400 dark:text-gray-500 font-light">
+          {providerModel || getModelName(id)}
         </div>
+      </div>
+      <div className="flex items-center gap-1.5 mb-4">
+        <div className="w-1.5 h-1.5 bg-gray-300/60 dark:bg-gray-600/60 rounded-full animate-pulse"></div>
+        <div className="w-1.5 h-1.5 bg-gray-300/60 dark:bg-gray-600/60 rounded-full animate-pulse" style={{ animationDelay: "0.2s" }}></div>
+        <div className="w-1.5 h-1.5 bg-gray-300/60 dark:bg-gray-600/60 rounded-full animate-pulse" style={{ animationDelay: "0.4s" }}></div>
+      </div>
+      <div className="pt-4 border-t border-gray-100/60 dark:border-gray-800/60 mb-4">
+        <Skeleton className="h-3 w-24 rounded" />
+      </div>
+      <div className="space-y-3">
+        <Skeleton className="h-3 w-full rounded" />
+        <Skeleton className="h-3 w-full rounded" />
+        <Skeleton className="h-3 w-3/4 rounded" />
+        <Skeleton className="h-3 w-full rounded" />
+        <Skeleton className="h-3 w-5/6 rounded" />
+        <Skeleton className="h-3 w-2/3 rounded" />
+        <Skeleton className="h-3 w-full rounded" />
+        <Skeleton className="h-3 w-4/5 rounded" />
       </div>
     </div>
   );
 }
 
-function ModelRow({ id, data, query }: { id: string; data: Answer | null; query: string }) {
+function ModelCard({
+  id,
+  data,
+  query,
+  providerModel,
+}: {
+  id: string;
+  data: Answer | null;
+  query: string;
+  providerModel?: string;
+}) {
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-2xl p-6 bg-white dark:bg-gray-900 group-hover:border-gray-300 dark:group-hover:border-gray-600 group-hover:shadow-sm dark:group-hover:shadow-lg transition-all duration-300 min-h-[200px]">
-      <div className="flex items-start gap-6">
-        {/* Model Header - Fixed width sidebar */}
-        <div className="flex-shrink-0 w-48">
-          <div className="mb-4">
-            <div className="text-base font-medium text-gray-900 dark:text-white">
-              {pretty(id)}
-            </div>
-            <div className="text-xs text-gray-400 dark:text-gray-500 font-light">
-              {getModelName(id)}
-            </div>
-          </div>
-          {data?.latencyMs && (
-            <div className="text-xs text-gray-400 dark:text-gray-500 font-mono mb-4">
-              {data.latencyMs}ms
-            </div>
-          )}
-          <div className="pt-4 border-t border-gray-100/60 dark:border-gray-800/60">
-            <a
-              className="inline-flex items-center gap-1.5 px-2 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md transition-all duration-200 group-hover:gap-2"
-              href={deepLink(id, data?.text, query)}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Continue in {pretty(id)}
-              <span className="transition-transform duration-300 group-hover:translate-x-0.5">→</span>
-            </a>
-          </div>
+    <div className="border border-gray-200 dark:border-gray-700 rounded-2xl p-5 bg-white dark:bg-gray-900 group-hover:border-gray-300 dark:group-hover:border-gray-600 group-hover:shadow-sm dark:group-hover:shadow-lg transition-all duration-300 min-h-[360px] flex flex-col">
+      <div className="mb-4">
+        <div className="text-base font-medium text-gray-900 dark:text-white">
+          {pretty(id)}
         </div>
-        
-        {/* Content Area - Flexible width */}
-        <div className="flex-1 min-w-0">
-          <div className="text-sm leading-6 text-gray-900 dark:text-gray-100">
-            {data?.error ? (
-              <div className="text-red-600 dark:text-red-400 border border-red-100/60 dark:border-red-900/60 bg-red-50/30 dark:bg-red-900/20 rounded-lg p-4">
-                <div className="font-medium mb-1 text-sm">Error</div>
-                <div className="text-xs">{data.error}</div>
+        <div className="text-xs text-gray-400 dark:text-gray-500 font-light">
+          {data?.providerModel || providerModel || getModelName(id)}
+        </div>
+      </div>
+      {data?.latencyMs ? (
+        <div className="text-xs text-gray-400 dark:text-gray-500 font-mono mb-4">
+          {data.latencyMs}ms
+        </div>
+      ) : (
+        <div className="text-xs text-gray-400 dark:text-gray-500 font-mono mb-4">--</div>
+      )}
+      <div className="pt-4 border-t border-gray-100/60 dark:border-gray-800/60 mb-4">
+        <a
+          className="inline-flex items-center gap-1.5 px-2 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md transition-all duration-200 group-hover:gap-2"
+          href={deepLink(id, data?.text, query)}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Continue in {pretty(id)}
+          <span className="transition-transform duration-300 group-hover:translate-x-0.5">→</span>
+        </a>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm leading-6 text-gray-900 dark:text-gray-100">
+          {data?.error ? (
+            <div className="text-red-600 dark:text-red-400 border border-red-100/60 dark:border-red-900/60 bg-red-50/30 dark:bg-red-900/20 rounded-lg p-4">
+              <div className="font-medium mb-1 text-sm">Error</div>
+              <div className="text-xs whitespace-pre-wrap break-all overflow-hidden [overflow-wrap:anywhere]">
+                {data.error}
               </div>
-            ) : data?.text ? (
-              <TruncatedContent content={data.text} />
-            ) : (
-              <div className="text-gray-400 dark:text-gray-500 italic text-center py-10 text-sm">No response available.</div>
-            )}
-          </div>
+            </div>
+          ) : data?.text ? (
+            <TruncatedContent content={data.text} />
+          ) : (
+            <div className="text-gray-400 dark:text-gray-500 italic text-center py-10 text-sm">No response available.</div>
+          )}
         </div>
       </div>
     </div>

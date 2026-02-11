@@ -18,12 +18,17 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-        <html lang="en" suppressHydrationWarning>
-          <body className="font-sans">
+    <html lang="en" suppressHydrationWarning>
+      <body className="font-sans">
         <ThemeProvider>
           {children}
+          <footer className="pointer-events-none fixed inset-x-0 bottom-3 z-40 flex justify-center px-4">
+            <p className="text-xs text-gray-500/90 dark:text-gray-400/90">
+              Drav™ Copyright 2026 @abedelez
+            </p>
+          </footer>
         </ThemeProvider>
       </body>
     </html>
-  )
+  );
 }

@@ -1,7 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAutocomplete } from "@/hooks/useAutocomplete";
 import { Autocomplete } from "@/components/Autocomplete";
@@ -113,33 +112,6 @@ export default function HomePage() {
                           type="submit"
                           className="text-black dark:text-white hover:text-gray-700 dark:hover:text-gray-300 text-lg font-medium select-none transition-colors duration-200 cursor-pointer p-1"
                         >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth={1.5}
-                            stroke="currentColor"
-                            className="w-5 h-5"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
-                            />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            if (q.trim()) {
-                              router.push(`/chat?q=${encodeURIComponent(q.trim())}`);
-                            } else {
-                              router.push("/chat");
-                            }
-                          }}
-                          className="text-black dark:text-white hover:text-gray-700 dark:hover:text-gray-300 text-lg font-medium select-none transition-colors duration-200 cursor-pointer p-1"
-                        >
                           ▲▼
                         </button>
                       </div>
@@ -155,21 +127,7 @@ export default function HomePage() {
                         type="submit" 
                         className="px-8 py-3 bg-black dark:bg-white hover:bg-gray-800 dark:hover:bg-gray-200 text-white dark:text-black font-medium rounded-xl transition-all duration-300 hover:scale-[1.02]"
                       >
-                        Drav Search
-                      </Button>
-                      <Button 
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          if (q.trim()) {
-                            router.push(`/chat?q=${encodeURIComponent(q.trim())}`);
-                          } else {
-                            router.push("/chat");
-                          }
-                        }}
-                        className="px-8 py-3 bg-black dark:bg-white hover:bg-gray-800 dark:hover:bg-gray-200 text-white dark:text-black font-medium rounded-xl transition-all duration-300 hover:scale-[1.02]"
-                      >
-                        Drav Chat
+                        Drav Ask
                       </Button>
                     </div>
           </div>

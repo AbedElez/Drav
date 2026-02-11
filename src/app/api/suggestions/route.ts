@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { assertContentLength, checkRateLimit, getClientIp } from "@/lib/security";
+import { MODEL_CONFIG } from "@/lib/models/config";
 
 export const runtime = "nodejs";
 
@@ -9,6 +11,7 @@ const Body = z.object({ query: z.string().min(1).max(100) });
 // Cache for API responses
 const responseCache = new Map<string, { suggestions: string[], timestamp: number }>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_ENTRIES = 500;
 
 // Simple suggestion patterns for common queries (fallback)
 const SUGGESTION_PATTERNS: Record<string, string[]> = {
@@ -41,6 +44,8 @@ async function getAISuggestions(query: string): Promise<string[]> {
 
   // Try OpenAI GPT-3.5-turbo first (fastest)
   if (openaiKey) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort("timeout"), 1800);
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -49,7 +54,7 @@ async function getAISuggestions(query: string): Promise<string[]> {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
+          model: MODEL_CONFIG.openaiSuggestions,
           messages: [{
             role: 'user',
             content: `Suggest 3 popular search queries related to: "${query}". Return only the queries, one per line, without numbering. Keep them short and relevant.`
@@ -57,6 +62,7 @@ async function getAISuggestions(query: string): Promise<string[]> {
           max_tokens: 50,
           temperature: 0.1,
         }),
+        signal: controller.signal,
       });
 
       if (response.ok) {
@@ -80,8 +86,10 @@ async function getAISuggestions(query: string): Promise<string[]> {
           return suggestions;
         }
       }
-    } catch (error) {
+    } catch {
       console.log("OpenAI suggestions failed, trying Gemini");
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -91,7 +99,7 @@ async function getAISuggestions(query: string): Promise<string[]> {
       const { GoogleGenerativeAI } = await import("@google/generative-ai");
       const genAI = new GoogleGenerativeAI(geminiKey);
       const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-flash",
+        model: MODEL_CONFIG.geminiSuggestions,
         generationConfig: {
           maxOutputTokens: 50,
           temperature: 0.1,
@@ -120,12 +128,27 @@ Return only the queries, one per line, without numbering. Keep them short and re
         .slice(0, 3) || [];
 
       return suggestions;
-    } catch (error) {
-      console.error("Gemini suggestions error:", error);
+    } catch {
+      console.error("Gemini suggestions error");
     }
   }
 
   return [];
+}
+
+function pruneCache() {
+  if (responseCache.size <= MAX_CACHE_ENTRIES) return;
+  const now = Date.now();
+  for (const [key, value] of responseCache.entries()) {
+    if (now - value.timestamp > CACHE_DURATION) {
+      responseCache.delete(key);
+    }
+  }
+  while (responseCache.size > MAX_CACHE_ENTRIES) {
+    const first = responseCache.keys().next().value;
+    if (!first) break;
+    responseCache.delete(first);
+  }
 }
 
 function getFallbackSuggestions(query: string): string[] {
@@ -171,6 +194,17 @@ function getFallbackSuggestions(query: string): string[] {
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    const limit = checkRateLimit(`suggestions:${ip}`, { max: 60, windowMs: 60_000 });
+    if (!limit.allowed) {
+      return NextResponse.json({ suggestions: [] }, { status: 429 });
+    }
+
+    const bodyErr = assertContentLength(req, 8_000);
+    if (bodyErr) {
+      return NextResponse.json({ suggestions: [] }, { status: 413 });
+    }
+
     const json = await req.json();
     const { query } = Body.parse(json);
 
@@ -203,6 +237,7 @@ export async function POST(req: NextRequest) {
 
     // Cache the results
     responseCache.set(query, { suggestions, timestamp: Date.now() });
+    pruneCache();
 
     return NextResponse.json({ suggestions });
   } catch (e: any) {
