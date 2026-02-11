@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { parseSSEMessages } from "@/lib/sse";
 
 // Truncated content component
 function TruncatedContent({ content, maxLength = 200, maxLines = 5 }: { content: string; maxLength?: number; maxLines?: number }) {
@@ -81,9 +82,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [currentResponses, setCurrentResponses] = useState<ChatResponse[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const responsesRef = useRef<ChatResponse[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Pre-fill input with query parameter
   useEffect(() => {
@@ -99,9 +99,15 @@ export default function ChatPage() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, currentResponses]);
+  }, [messages]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent | React.KeyboardEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
@@ -115,14 +121,17 @@ export default function ChatPage() {
     setMessages(prev => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
-    setCurrentResponses([]);
-    responsesRef.current = [];
+
+    abortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: input.trim() }),
+        signal: abortController.signal,
       });
 
       if (!response.ok) throw new Error('Network response was not ok');
@@ -131,99 +140,66 @@ export default function ChatPage() {
       if (!reader) throw new Error('No reader available');
       
       const decoder = new TextDecoder();
-      
-      const readStream = (): Promise<void> => {
-        return reader.read().then(({ done, value }) => {
-        if (done) {
-          setIsLoading(false);
-          // Add all responses as separate messages
-          const assistantMessages = responsesRef.current.map(response => ({
-            id: `${Date.now()}-${response.modelId}`,
-            role: 'assistant' as const,
-            content: response.text || response.error || "No response",
-            timestamp: new Date(),
-            modelId: response.modelId,
-            latencyMs: response.latencyMs,
-            error: response.error
-          }));
-          setMessages(prev => [...prev, ...assistantMessages]);
-          setCurrentResponses([]);
-          responsesRef.current = [];
+      let sseBuffer = "";
+
+      const handleEvent = (event: any) => {
+        if (event.type === "response") {
+          setMessages((prev) => {
+            const lastUserMessage = [...prev].reverse().find((msg) => msg.role === "user");
+            if (!lastUserMessage) return prev;
+
+            const userIndex = prev.findIndex((msg) => msg.id === lastUserMessage.id);
+            const hasResponseFromModel = prev
+              .slice(userIndex)
+              .some((msg) => msg.role === "assistant" && msg.modelId === event.response.modelId);
+
+            if (hasResponseFromModel) {
+              return prev;
+            }
+
+            const assistantMessage: Message = {
+              id: `${Date.now()}-${event.response.modelId}`,
+              role: "assistant",
+              content: event.response.text || event.response.error || "No response",
+              timestamp: new Date(),
+              modelId: event.response.modelId,
+              latencyMs: event.response.latencyMs,
+              error: event.response.error,
+            };
+            return [...prev, assistantMessage];
+          });
           return;
         }
-          
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                
-                if (data.type === "start") {
-                  // Do nothing, just started
-                } else if (data.type === "response") {
-                  console.log("Received response:", data.response);
-                  
-                  // Check if we already have a response from this model for the current user message
-                  setMessages(prev => {
-                    const lastUserMessage = [...prev].reverse().find(msg => msg.role === 'user');
-                    if (!lastUserMessage) return prev;
-                    
-                    // Check if we already have a response from this model after the last user message
-                    const hasResponseFromModel = prev
-                      .slice(prev.findIndex(msg => msg.id === lastUserMessage.id))
-                      .some(msg => msg.role === 'assistant' && msg.modelId === data.response.modelId);
-                    
-                    if (hasResponseFromModel) {
-                      return prev; // Don't add duplicate
-                    }
-                    
-                    // Add the message immediately for real-time display
-                    const assistantMessage = {
-                      id: `${Date.now()}-${data.response.modelId}`,
-                      role: 'assistant' as const,
-                      content: data.response.text || data.response.error || "No response",
-                      timestamp: new Date(),
-                      modelId: data.response.modelId,
-                      latencyMs: data.response.latencyMs,
-                      error: data.response.error
-                    };
-                    
-                    return [...prev, assistantMessage];
-                  });
-                  
-                  // Update currentResponses for loading indicators
-                  setCurrentResponses(prev => {
-                    const existingIndex = prev.findIndex(r => r.modelId === data.response.modelId);
-                    if (existingIndex >= 0) {
-                      return prev; // Don't update existing responses
-                    } else {
-                      const newResponses = [...prev, data.response];
-                      responsesRef.current = newResponses;
-                      return newResponses;
-                    }
-                  });
-                } else if (data.type === "complete") {
-                  setIsLoading(false);
-                  setCurrentResponses([]);
-                  responsesRef.current = [];
-                  return;
-                }
-              } catch (error) {
-                console.error("Error parsing SSE data:", error);
-              }
-            }
-          }
-          
-          return readStream();
-        });
+
+        if (event.type === "complete") {
+          setIsLoading(false);
+        }
+      };
+
+      const consumeChunk = (chunk: string) => {
+        const parsed = parseSSEMessages(sseBuffer, chunk);
+        sseBuffer = parsed.buffer;
+        for (const event of parsed.events) {
+          handleEvent(event);
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        consumeChunk(decoder.decode(value, { stream: true }));
       }
-      
-      return readStream();
+
+      consumeChunk(decoder.decode() + "\n\n");
+      setIsLoading(false);
     } catch (error) {
+      if ((error as any)?.name === "AbortError") return;
       console.error("Chat error:", error);
       setIsLoading(false);
+    } finally {
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
     }
   };
 

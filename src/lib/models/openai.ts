@@ -9,16 +9,7 @@ export async function askOpenAI(prompt: string, signal?: AbortSignal): Promise<D
       return { modelId: "gpt-4o", text: "", latencyMs: Date.now() - t0, error: "OpenAI API key not configured" };
     }
     
-    const client = new OpenAI({ 
-      apiKey,
-      fetch: (url, options) => {
-        return fetch(url, {
-          ...(options as RequestInit || {}),
-          // @ts-ignore
-          rejectUnauthorized: false
-        });
-      }
-    });
+    const client = new OpenAI({ apiKey });
     const res = await client.chat.completions.create({
       model: "gpt-4o",
       temperature: 0.2,

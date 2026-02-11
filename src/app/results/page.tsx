@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 import { useAutocomplete } from "@/hooks/useAutocomplete";
 import { Autocomplete } from "@/components/Autocomplete";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { parseSSEMessages } from "@/lib/sse";
 
 // Truncated content component
 function TruncatedContent({ content, maxLength = 400, maxLines = 5 }: { content: string; maxLength?: number; maxLines?: number }) {
@@ -94,73 +95,80 @@ export default function ResultsPage() {
     if (!q) return;
     setLoading(true);
     setData(null);
-    
-    // Use streaming endpoint with fetch
-    const responses: Answer[] = [];
-    
-    fetch("/api/answers/stream", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ q }),
-    })
-    .then(response => {
-      if (!response.ok) throw new Error('Network response was not ok');
-      
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No reader available');
-      
-      const decoder = new TextDecoder();
-      
-      function readStream(): Promise<void> {
-        return reader.read().then(({ done, value }) => {
-          if (done) {
-            setLoading(false);
-            return;
-          }
-          
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                
-                if (data.type === "start") {
-                  setData([]);
-                } else if (data.type === "response") {
-                  setData(prevData => {
-                    // Check if we already have a response for this model
-                    const existingIndex = prevData?.findIndex(r => r.modelId === data.response.modelId) ?? -1;
-                    
-                    if (existingIndex >= 0) {
-                      // Don't update if we already have a response for this model
-                      return prevData;
-                    } else {
-                      // Add new response
-                      return [...(prevData || []), data.response];
-                    }
-                  });
-                } else if (data.type === "complete") {
-                  setLoading(false);
-                  return;
-                }
-              } catch (error) {
-                console.error("Error parsing SSE data:", error);
-              }
-            }
-          }
-          
-          return readStream();
-        });
+
+    const abortController = new AbortController();
+    let active = true;
+    let sseBuffer = "";
+
+    const handleEvent = (event: any) => {
+      if (!active) return;
+
+      if (event.type === "start") {
+        setData([]);
+        return;
       }
-      
-      return readStream();
-    })
-    .catch(error => {
-      console.error("Streaming error:", error);
-      setLoading(false);
-    });
+
+      if (event.type === "response") {
+        setData((prevData) => {
+          const existingIndex = prevData?.findIndex((r) => r.modelId === event.response.modelId) ?? -1;
+          if (existingIndex >= 0) {
+            return prevData;
+          }
+          return [...(prevData || []), event.response];
+        });
+        return;
+      }
+
+      if (event.type === "complete") {
+        setLoading(false);
+      }
+    };
+
+    const consumeChunk = (chunk: string) => {
+      const parsed = parseSSEMessages(sseBuffer, chunk);
+      sseBuffer = parsed.buffer;
+      for (const event of parsed.events) {
+        handleEvent(event);
+      }
+    };
+
+    (async () => {
+      try {
+        const response = await fetch("/api/answers/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ q }),
+          signal: abortController.signal,
+        });
+        if (!response.ok) throw new Error("Network response was not ok");
+
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("No reader available");
+
+        const decoder = new TextDecoder();
+        while (active) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          consumeChunk(decoder.decode(value, { stream: true }));
+        }
+
+        consumeChunk(decoder.decode() + "\n\n");
+        if (active) {
+          setLoading(false);
+        }
+      } catch (error: any) {
+        if (error?.name === "AbortError") return;
+        console.error("Streaming error:", error);
+        if (active) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+      abortController.abort();
+    };
   }, [q]);
 
   function onResubmit(e: React.FormEvent) {
