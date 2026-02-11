@@ -28,6 +28,19 @@ yarn-error.log*
 # local env files
 .env*.local
 
+# env/secrets
+.env
+.env.*
+!.env.example
+!env.example
+
+# common secret file formats
+*.key
+*.crt
+*.p12
+*.pfx
+.envrc
+
 # vercel
 .vercel
 
