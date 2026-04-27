@@ -1,14 +1,36 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { ThemeProvider } from '@/contexts/ThemeContext'
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from '@/lib/site'
+
+const PRIMARY_TITLE = `Talk to multiple AI at once – ${SITE_NAME}`;
 
 export const metadata: Metadata = {
-  title: 'Drav - All intelligence, all at once',
-  description: 'Compare answers from OpenAI, Anthropic, and Google Gemini',
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: PRIMARY_TITLE,
+    template: `%s · ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  alternates: { canonical: '/' },
   icons: {
     icon: '/favicon.svg',
     shortcut: '/favicon.svg',
     apple: '/favicon.svg',
+  },
+  openGraph: {
+    type: 'website',
+    siteName: SITE_NAME,
+    title: PRIMARY_TITLE,
+    description: SITE_DESCRIPTION,
+    url: '/',
+    locale: 'en_US',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: PRIMARY_TITLE,
+    description: SITE_DESCRIPTION,
   },
 }
 

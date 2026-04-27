@@ -68,15 +68,15 @@ export default function HomePage() {
         
         <div className="text-center mb-16">
                   <div className="flex items-center justify-center gap-3 mb-4">
-                    <div className="text-4xl text-black dark:text-white font-medium">
+                    <div className="text-4xl text-black dark:text-white font-medium" aria-hidden="true">
                       ▲▼
                     </div>
-                    <div className="text-6xl font-medium tracking-tight text-black dark:text-white">
+                    <h1 className="text-6xl font-medium tracking-tight text-black dark:text-white">
                       DRAV
-                    </div>
+                    </h1>
                   </div>
           <p className="text-lg text-gray-500 dark:text-gray-400 font-light">
-            All intelligence, all at one.
+            Talk to multiple AI at once.
           </p>
         </div>
 
