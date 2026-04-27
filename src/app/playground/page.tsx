@@ -21,6 +21,7 @@ import "@xyflow/react/dist/style.css";
 
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useTheme } from "@/contexts/ThemeContext";
 import { InputNode } from "./nodes/InputNode";
 import { ModelNode } from "./nodes/ModelNode";
 import { OutputNode } from "./nodes/OutputNode";
@@ -94,6 +95,7 @@ function buildInitialGraph(): { nodes: FlowNode[]; edges: Edge[] } {
 }
 
 function PlaygroundCanvas() {
+  const { resolvedTheme } = useTheme();
   const initial = useMemo(() => buildInitialGraph(), []);
   const [nodes, setNodes] = useState<FlowNode[]>(initial.nodes);
   const [edges, setEdges] = useState<Edge[]>(initial.edges);
@@ -363,17 +365,14 @@ function PlaygroundCanvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         fitView
+        colorMode={resolvedTheme}
         proOptions={{ hideAttribution: true }}
         deleteKeyCode={["Backspace", "Delete"]}
         className="bg-gray-50 dark:bg-gray-950"
       >
         <Background gap={16} className="!bg-gray-50 dark:!bg-gray-950" />
-        <MiniMap
-          pannable
-          zoomable
-          className="!bg-white dark:!bg-gray-900 !border !border-gray-200 dark:!border-gray-800"
-        />
-        <Controls className="!bg-white dark:!bg-gray-900 !border !border-gray-200 dark:!border-gray-800" />
+        <MiniMap pannable zoomable />
+        <Controls />
       </ReactFlow>
     </div>
   );
