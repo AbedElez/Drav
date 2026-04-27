@@ -48,7 +48,34 @@ npm run dev
 - Side-by-side model comparison on `/results`
 - Streaming model responses via SSE
 - Hybrid autocomplete (local + provider-backed suggestions)
+- Node-graph workflow builder on `/playground`
 - Light/dark/system theme support
+
+## Playground
+
+The Playground (`/playground`) is a node-graph builder for chaining models together. You drag and connect three kinds of nodes on a canvas:
+
+- **Input** — a starting text box.
+- **Model** — picks a provider (OpenAI / Anthropic / Gemini) and runs a prompt.
+- **Output** — terminal display of a final result.
+
+Connect node outputs to downstream node inputs to form a directed acyclic graph. Click **Run** and the server topologically sorts the graph and executes nodes in dependency order, running independent branches in parallel and streaming each model's tokens back into its node in real time.
+
+### Prompt placeholders
+
+Inside a Model node's prompt, two placeholders are substituted with upstream node outputs:
+
+- `{{input}}` — concatenation of all upstream node outputs (separated by blank lines). Best for the common single-input case.
+- `{{input_1}}`, `{{input_2}}`, … — the Nth upstream output, ordered by the order edges were connected. Use these when a Model node has multiple incoming edges and the prompt needs to refer to each one separately.
+
+Each Model node shows the placeholders available to it based on its current incoming edges.
+
+### Notes and limits
+
+- Workflows are **ephemeral** — there is no save/load. A page reload starts from the default seed graph.
+- Graphs must be acyclic. Cycles are rejected by the server.
+- Per-run limits: up to 20 nodes and 60 edges, 30s per Model node, 10 runs per minute per IP.
+- Deferred to a future version: conditional branches, loops, named handles, undo/redo, and persistence.
 
 ## Architecture
 
@@ -57,9 +84,13 @@ src/
   app/
     page.tsx
     results/page.tsx
+    playground/
+      page.tsx
+      nodes/
     api/
       answers/route.ts
       answers/stream/route.ts
+      playground/graph/route.ts
       suggestions/route.ts
   components/
   contexts/
