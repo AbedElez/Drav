@@ -184,7 +184,7 @@ export default function PlaygroundPage() {
             </Link>
             <h1 className="mt-2 text-3xl font-medium tracking-tight">Playground</h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Pipe one model's output into the next. Use{" "}
+              Pipe one model&apos;s output into the next. Use{" "}
               <code className="rounded bg-gray-100 dark:bg-gray-900 px-1 py-0.5 text-xs">
                 {"{{step1}}"}
               </code>{" "}
