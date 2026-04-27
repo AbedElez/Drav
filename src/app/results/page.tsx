@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,14 @@ type Answer = {
 };
 
 export default function ResultsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-white dark:bg-black" />}>
+      <ResultsContent />
+    </Suspense>
+  );
+}
+
+function ResultsContent() {
   const sp = useSearchParams();
   const router = useRouter();
   const q = sp.get("q") ?? "";
