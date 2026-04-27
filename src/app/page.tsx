@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -122,13 +123,19 @@ export default function HomePage() {
                 onClose={clearSuggestions}
               />
             </div>
-                    <div className="flex justify-center gap-4">
-                      <Button 
-                        type="submit" 
+                    <div className="flex justify-center gap-3">
+                      <Button
+                        type="submit"
                         className="px-8 py-3 bg-black dark:bg-white hover:bg-gray-800 dark:hover:bg-gray-200 text-white dark:text-black font-medium rounded-xl transition-all duration-300 hover:scale-[1.02]"
                       >
                         Drav Ask
                       </Button>
+                      <Link
+                        href="/playground"
+                        className="inline-flex items-center px-8 py-3 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white font-medium rounded-xl transition-all duration-300 hover:bg-gray-50 dark:hover:bg-gray-900 hover:scale-[1.02]"
+                      >
+                        Playground
+                      </Link>
                     </div>
           </div>
         </form>
