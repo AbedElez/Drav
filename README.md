@@ -1,6 +1,6 @@
-# Drav
+# Drav™
 
-Drav is a multi-model AI search app built with Next.js. It compares answers from OpenAI, Anthropic, and Gemini in real time and displays responses side-by-side.
+Drav™ is a multi-model AI search app built with Next.js. It compares answers from OpenAI, Anthropic, and Gemini in real time and displays responses side-by-side.
 
 ## Disclaimer
 
