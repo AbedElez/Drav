@@ -20,7 +20,7 @@ export async function askOpenAI(
       };
     }
     
-    const client = new OpenAI({ apiKey });
+    const client = new OpenAI({ apiKey, fetch: globalThis.fetch });
     if (onDelta) {
       const stream = await client.chat.completions.create(
         {

@@ -20,8 +20,9 @@ export async function askAnthropic(
       };
     }
     
-    const client = new Anthropic({ 
-      apiKey
+    const client = new Anthropic({
+      apiKey,
+      fetch: globalThis.fetch,
     });
     
     if (onDelta) {

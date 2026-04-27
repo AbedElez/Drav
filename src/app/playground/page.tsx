@@ -1,78 +1,208 @@
 "use client";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  Controls,
+  MiniMap,
+  addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
+  type Connection,
+  type Edge,
+  type EdgeChange,
+  type Node,
+  type NodeChange,
+  type NodeTypes,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { InputNode } from "./nodes/InputNode";
+import { ModelNode } from "./nodes/ModelNode";
+import { OutputNode } from "./nodes/OutputNode";
+import type { ModelId, NodeRunState } from "./nodes/types";
 
-type ModelId = "gpt-4o" | "claude-3-5" | "gemini-flash-latest";
+type FlowNode = Node<any>;
+type DravNodeType = "dravInput" | "dravModel" | "dravOutput";
 
-type Step = {
-  id: string;
-  modelId: ModelId;
-  prompt: string;
+const newId = (() => {
+  let counter = 0;
+  return (prefix: string) => {
+    counter += 1;
+    return `${prefix}${counter}_${Math.random().toString(36).slice(2, 6)}`;
+  };
+})();
+
+const NODE_TYPES: NodeTypes = {
+  dravInput: InputNode as any,
+  dravModel: ModelNode as any,
+  dravOutput: OutputNode as any,
 };
 
-type StepRunState = {
-  status: "idle" | "running" | "done" | "error";
-  output: string;
-  error?: string;
+const SERVER_TYPE: Record<DravNodeType, "input" | "model" | "output"> = {
+  dravInput: "input",
+  dravModel: "model",
+  dravOutput: "output",
 };
 
-const MODEL_OPTIONS: { id: ModelId; label: string }[] = [
-  { id: "gpt-4o", label: "OpenAI" },
-  { id: "claude-3-5", label: "Anthropic" },
-  { id: "gemini-flash-latest", label: "Gemini" },
-];
+function buildInitialGraph(): { nodes: FlowNode[]; edges: Edge[] } {
+  const inputId = newId("in");
+  const model1Id = newId("m");
+  const model2Id = newId("m");
+  const outputId = newId("out");
+  return {
+    nodes: [
+      {
+        id: inputId,
+        type: "dravInput",
+        position: { x: 40, y: 120 },
+        data: { text: "Write a one-paragraph story about a lighthouse keeper." },
+      },
+      {
+        id: model1Id,
+        type: "dravModel",
+        position: { x: 380, y: 60 },
+        data: { modelId: "gpt-4o" as ModelId, prompt: "{{input}}" },
+      },
+      {
+        id: model2Id,
+        type: "dravModel",
+        position: { x: 760, y: 60 },
+        data: {
+          modelId: "claude-3-5" as ModelId,
+          prompt:
+            "Rewrite the following in the style of a noir detective novel:\n\n{{input}}",
+        },
+      },
+      {
+        id: outputId,
+        type: "dravOutput",
+        position: { x: 1140, y: 120 },
+        data: {},
+      },
+    ],
+    edges: [
+      { id: `e_${inputId}_${model1Id}`, source: inputId, target: model1Id },
+      { id: `e_${model1Id}_${model2Id}`, source: model1Id, target: model2Id },
+      { id: `e_${model2Id}_${outputId}`, source: model2Id, target: outputId },
+    ],
+  };
+}
 
-const newStepId = () => Math.random().toString(36).slice(2, 9);
+function PlaygroundCanvas() {
+  const initial = useMemo(() => buildInitialGraph(), []);
+  const [nodes, setNodes] = useState<FlowNode[]>(initial.nodes);
+  const [edges, setEdges] = useState<Edge[]>(initial.edges);
 
-const initialSteps: Step[] = [
-  {
-    id: newStepId(),
-    modelId: "gpt-4o",
-    prompt: "Write a one-paragraph story about a lighthouse keeper.",
-  },
-  {
-    id: newStepId(),
-    modelId: "claude-3-5",
-    prompt:
-      "Take the following story and rewrite it in the style of a noir detective novel:\n\n{{step1}}",
-  },
-];
-
-export default function PlaygroundPage() {
-  const [steps, setSteps] = useState<Step[]>(initialSteps);
-  const [runState, setRunState] = useState<Record<number, StepRunState>>({});
   const [running, setRunning] = useState(false);
+  const [runStates, setRunStates] = useState<Record<string, NodeRunState>>({});
   const abortRef = useRef<AbortController | null>(null);
 
-  const updateStep = (id: string, patch: Partial<Step>) => {
-    setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-  };
+  const updateNodeData = useCallback((id: string, patch: Record<string, unknown>) => {
+    setNodes((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))
+    );
+  }, []);
 
-  const addStep = () => {
-    setSteps((prev) => [
-      ...prev,
-      {
-        id: newStepId(),
-        modelId: "gpt-4o",
-        prompt: `Use the previous output:\n\n{{step${prev.length}}}`,
-      },
-    ]);
-  };
-
-  const removeStep = (id: string) => {
-    setSteps((prev) => (prev.length === 1 ? prev : prev.filter((s) => s.id !== id)));
-  };
-
-  const moveStep = (index: number, dir: -1 | 1) => {
-    setSteps((prev) => {
-      const next = [...prev];
-      const target = index + dir;
-      if (target < 0 || target >= next.length) return prev;
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
+  const deleteNode = useCallback((id: string) => {
+    setNodes((prev) => prev.filter((n) => n.id !== id));
+    setEdges((prev) => prev.filter((e) => e.source !== id && e.target !== id));
+    setRunStates((prev) => {
+      if (!(id in prev)) return prev;
+      const { [id]: _removed, ...rest } = prev;
+      return rest;
     });
+  }, []);
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => setNodes((prev) => applyNodeChanges(changes, prev)),
+    []
+  );
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => setEdges((prev) => applyEdgeChanges(changes, prev)),
+    []
+  );
+
+  const onConnect = useCallback(
+    (conn: Connection) =>
+      setEdges((prev) =>
+        addEdge(
+          {
+            ...conn,
+            id: `e_${conn.source}_${conn.target}_${Math.random().toString(36).slice(2, 6)}`,
+          },
+          prev
+        )
+      ),
+    []
+  );
+
+  // Compute incoming edge counts per node so model nodes can render the
+  // available {{input_N}} placeholders.
+  const incomingCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const e of edges) counts[e.target] = (counts[e.target] || 0) + 1;
+    return counts;
+  }, [edges]);
+
+  // Inject `data.onChange`, `data.onDelete`, `data.state`, and incoming-count
+  // into each node so the React Flow node components can edit themselves and
+  // reflect run state without us re-creating the node objects on every keystroke.
+  const renderedNodes = useMemo<FlowNode[]>(() => {
+    return nodes.map((n) => {
+      const state = runStates[n.id];
+      if (n.type === "dravInput") {
+        return {
+          ...n,
+          data: {
+            text: (n.data as any).text ?? "",
+            onChange: (patch: any) => updateNodeData(n.id, patch),
+            onDelete: () => deleteNode(n.id),
+          },
+        };
+      }
+      if (n.type === "dravModel") {
+        return {
+          ...n,
+          data: {
+            modelId: (n.data as any).modelId,
+            prompt: (n.data as any).prompt,
+            state,
+            incomingCount: incomingCounts[n.id] || 0,
+            onChange: (patch: any) => updateNodeData(n.id, patch),
+            onDelete: () => deleteNode(n.id),
+          },
+        };
+      }
+      if (n.type === "dravOutput") {
+        return {
+          ...n,
+          data: { state, onDelete: () => deleteNode(n.id) },
+        };
+      }
+      return n;
+    });
+  }, [nodes, runStates, updateNodeData, deleteNode, incomingCounts]);
+
+  const addNode = (type: DravNodeType) => {
+    const prefix =
+      type === "dravInput" ? "in" : type === "dravModel" ? "m" : "out";
+    const id = newId(prefix);
+    const position = {
+      x: 200 + Math.random() * 200,
+      y: 200 + Math.random() * 200,
+    };
+    let data: any;
+    if (type === "dravInput") data = { text: "" };
+    else if (type === "dravModel")
+      data = { modelId: "gpt-4o" as ModelId, prompt: "{{input}}" };
+    else data = {};
+    setNodes((prev) => [...prev, { id, type, position, data }]);
   };
 
   const stop = () => {
@@ -83,25 +213,39 @@ export default function PlaygroundPage() {
 
   const run = async () => {
     if (running) return;
-    setRunState({});
+    setRunStates({});
     setRunning(true);
 
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const payload = {
+      nodes: nodes.map((n) => {
+        const serverType = SERVER_TYPE[n.type as DravNodeType];
+        if (serverType === "input")
+          return { id: n.id, type: "input", text: (n.data as any).text ?? "" };
+        if (serverType === "model")
+          return {
+            id: n.id,
+            type: "model",
+            modelId: (n.data as any).modelId,
+            prompt: (n.data as any).prompt,
+          };
+        return { id: n.id, type: "output" };
+      }),
+      edges: edges.map((e) => ({ source: e.source, target: e.target })),
+    };
+
     try {
-      const res = await fetch("/api/playground/run", {
+      const res = await fetch("/api/playground/graph", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          steps: steps.map((s) => ({ modelId: s.modelId, prompt: s.prompt })),
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
-
       if (!res.ok || !res.body) {
-        const err = await res.text().catch(() => "");
-        throw new Error(err || `Request failed (${res.status})`);
+        const errText = await res.text().catch(() => "");
+        throw new Error(errText || `Request failed (${res.status})`);
       }
 
       const reader = res.body.getReader();
@@ -119,35 +263,34 @@ export default function PlaygroundPage() {
           buffer = buffer.slice(sepIndex + 2);
           const line = raw.split("\n").find((l) => l.startsWith("data: "));
           if (!line) continue;
-          const payload = line.slice(6);
           let event: any;
           try {
-            event = JSON.parse(payload);
+            event = JSON.parse(line.slice(6));
           } catch {
             continue;
           }
 
-          if (event.type === "step_start") {
-            setRunState((prev) => ({
+          if (event.type === "node_start") {
+            setRunStates((prev) => ({
               ...prev,
-              [event.index]: { status: "running", output: "" },
+              [event.id]: { status: "running", output: "" },
             }));
-          } else if (event.type === "step_delta") {
-            setRunState((prev) => {
-              const cur = prev[event.index] ?? { status: "running", output: "" };
+          } else if (event.type === "node_delta") {
+            setRunStates((prev) => {
+              const cur = prev[event.id] ?? { status: "running", output: "" };
               return {
                 ...prev,
-                [event.index]: { ...cur, output: cur.output + event.delta },
+                [event.id]: { ...cur, output: cur.output + event.delta },
               };
             });
-          } else if (event.type === "step_complete") {
-            setRunState((prev) => {
-              const cur = prev[event.index] ?? { status: "running", output: "" };
+          } else if (event.type === "node_complete") {
+            setRunStates((prev) => {
+              const cur = prev[event.id] ?? { status: "running", output: "" };
               return {
                 ...prev,
-                [event.index]: {
+                [event.id]: {
                   status: event.error ? "error" : "done",
-                  output: event.text || cur.output,
+                  output: event.text ?? cur.output,
                   error: event.error,
                 },
               };
@@ -168,159 +311,104 @@ export default function PlaygroundPage() {
   };
 
   return (
-    <main className="min-h-screen bg-white dark:bg-black text-gray-900 dark:text-white">
-      <div className="absolute top-6 right-6">
-        <ThemeToggle />
+    <div className="relative h-[calc(100vh-4rem)] w-full">
+      <div className="absolute z-10 top-3 left-3 flex items-center gap-2">
+        <Button
+          onClick={() => addNode("dravInput")}
+          disabled={running}
+          className="h-8 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-900 dark:text-white text-xs hover:bg-gray-50 dark:hover:bg-gray-900"
+        >
+          + Input
+        </Button>
+        <Button
+          onClick={() => addNode("dravModel")}
+          disabled={running}
+          className="h-8 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-900 dark:text-white text-xs hover:bg-gray-50 dark:hover:bg-gray-900"
+        >
+          + Model
+        </Button>
+        <Button
+          onClick={() => addNode("dravOutput")}
+          disabled={running}
+          className="h-8 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-900 dark:text-white text-xs hover:bg-gray-50 dark:hover:bg-gray-900"
+        >
+          + Output
+        </Button>
       </div>
 
-      <div className="max-w-3xl mx-auto px-6 pt-12 pb-32">
-        <div className="mb-8 flex items-baseline justify-between">
-          <div>
-            <Link
-              href="/"
-              className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-            >
-              ← Back
-            </Link>
-            <h1 className="mt-2 text-3xl font-medium tracking-tight">Playground</h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Pipe one model&apos;s output into the next. Use{" "}
-              <code className="rounded bg-gray-100 dark:bg-gray-900 px-1 py-0.5 text-xs">
-                {"{{step1}}"}
-              </code>{" "}
-              to reference earlier outputs.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {steps.map((step, i) => {
-            const state = runState[i];
-            return (
-              <div
-                key={step.id}
-                className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50/30 dark:bg-gray-900/30 p-4"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                      Step {i + 1}
-                    </span>
-                    <select
-                      value={step.modelId}
-                      onChange={(e) =>
-                        updateStep(step.id, { modelId: e.target.value as ModelId })
-                      }
-                      className="text-sm rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gray-400"
-                    >
-                      {MODEL_OPTIONS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                    {state?.status === "running" && (
-                      <span className="text-xs text-blue-600 dark:text-blue-400">
-                        running…
-                      </span>
-                    )}
-                    {state?.status === "done" && (
-                      <span className="text-xs text-green-600 dark:text-green-400">
-                        done
-                      </span>
-                    )}
-                    {state?.status === "error" && (
-                      <span className="text-xs text-red-600 dark:text-red-400">
-                        error
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => moveStep(i, -1)}
-                      disabled={i === 0}
-                      className="text-xs px-2 py-1 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white disabled:opacity-30"
-                      aria-label="Move up"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      onClick={() => moveStep(i, 1)}
-                      disabled={i === steps.length - 1}
-                      className="text-xs px-2 py-1 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white disabled:opacity-30"
-                      aria-label="Move down"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      onClick={() => removeStep(step.id)}
-                      disabled={steps.length === 1}
-                      className="text-xs px-2 py-1 rounded text-gray-500 hover:text-red-600 disabled:opacity-30"
-                      aria-label="Remove step"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-
-                <textarea
-                  value={step.prompt}
-                  onChange={(e) => updateStep(step.id, { prompt: e.target.value })}
-                  rows={4}
-                  placeholder="Write a prompt. Reference prior steps with {{step1}}, {{step2}}…"
-                  className="w-full text-sm font-mono rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
-                />
-
-                {(state?.output || state?.error) && (
-                  <div className="mt-3 rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-3">
-                    <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
-                      Output
-                    </div>
-                    {state.error ? (
-                      <div className="text-sm text-red-600 dark:text-red-400">
-                        {state.error}
-                      </div>
-                    ) : (
-                      <div className="text-sm whitespace-pre-wrap break-words">
-                        {state.output}
-                        {state.status === "running" && (
-                          <span className="inline-block w-2 h-4 ml-0.5 align-middle bg-gray-400 animate-pulse" />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-6 flex items-center gap-3">
+      <div className="absolute z-10 top-3 right-3 flex items-center gap-2">
+        {running ? (
           <Button
-            onClick={addStep}
-            disabled={steps.length >= 8 || running}
-            className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-900"
+            onClick={stop}
+            className="h-8 rounded-lg border border-red-300 dark:border-red-900 bg-white dark:bg-gray-950 text-red-600 dark:text-red-400 text-xs hover:bg-red-50 dark:hover:bg-red-950/30"
           >
-            + Add step
+            Stop
           </Button>
-          <div className="flex-1" />
-          {running ? (
-            <Button
-              onClick={stop}
-              className="rounded-xl border border-red-300 dark:border-red-900 bg-white dark:bg-gray-950 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
-            >
-              Stop
-            </Button>
-          ) : (
-            <Button
-              onClick={run}
-              className="px-6 py-2 bg-black dark:bg-white hover:bg-gray-800 dark:hover:bg-gray-200 text-white dark:text-black font-medium rounded-xl"
-            >
-              Run chain
-            </Button>
-          )}
-        </div>
+        ) : (
+          <Button
+            onClick={run}
+            disabled={nodes.length === 0}
+            className="h-8 px-4 rounded-lg bg-black dark:bg-white text-white dark:text-black text-xs hover:bg-gray-800 dark:hover:bg-gray-200"
+          >
+            Run
+          </Button>
+        )}
       </div>
+
+      <ReactFlow
+        nodes={renderedNodes}
+        edges={edges}
+        nodeTypes={NODE_TYPES}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        fitView
+        proOptions={{ hideAttribution: true }}
+        deleteKeyCode={["Backspace", "Delete"]}
+        className="bg-gray-50 dark:bg-gray-950"
+      >
+        <Background gap={16} className="!bg-gray-50 dark:!bg-gray-950" />
+        <MiniMap
+          pannable
+          zoomable
+          className="!bg-white dark:!bg-gray-900 !border !border-gray-200 dark:!border-gray-800"
+        />
+        <Controls className="!bg-white dark:!bg-gray-900 !border !border-gray-200 dark:!border-gray-800" />
+      </ReactFlow>
+    </div>
+  );
+}
+
+export default function PlaygroundPage() {
+  return (
+    <main className="min-h-screen bg-white dark:bg-black text-gray-900 dark:text-white">
+      <header className="h-16 px-6 flex items-center justify-between border-b border-gray-100 dark:border-gray-900">
+        <div className="flex items-baseline gap-4">
+          <Link
+            href="/"
+            className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+          >
+            ← Back
+          </Link>
+          <h1 className="text-lg font-medium tracking-tight">Playground</h1>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            Build a graph. Use{" "}
+            <code className="rounded bg-gray-100 dark:bg-gray-900 px-1 py-0.5 text-[10px]">
+              {"{{input}}"}
+            </code>{" "}
+            or{" "}
+            <code className="rounded bg-gray-100 dark:bg-gray-900 px-1 py-0.5 text-[10px]">
+              {"{{input_N}}"}
+            </code>{" "}
+            in Model prompts to reference upstream text.
+          </span>
+        </div>
+        <ThemeToggle />
+      </header>
+
+      <ReactFlowProvider>
+        <PlaygroundCanvas />
+      </ReactFlowProvider>
     </main>
   );
 }
