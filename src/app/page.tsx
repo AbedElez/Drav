@@ -126,13 +126,13 @@ export default function HomePage() {
                     <div className="flex justify-center gap-3">
                       <Button
                         type="submit"
-                        className="px-8 py-3 bg-black dark:bg-white hover:bg-gray-800 dark:hover:bg-gray-200 text-white dark:text-black font-medium rounded-xl transition-all duration-300 hover:scale-[1.02]"
+                        className="h-12 px-8 text-base bg-black dark:bg-white hover:bg-gray-800 dark:hover:bg-gray-200 text-white dark:text-black font-medium rounded-xl transition-all duration-300 hover:scale-[1.02]"
                       >
                         Drav Ask
                       </Button>
                       <Link
                         href="/playground"
-                        className="inline-flex items-center px-8 py-3 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white font-medium rounded-xl transition-all duration-300 hover:bg-gray-50 dark:hover:bg-gray-900 hover:scale-[1.02]"
+                        className="inline-flex items-center justify-center h-12 px-8 text-base border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white font-medium rounded-xl transition-all duration-300 hover:bg-gray-50 dark:hover:bg-gray-900 hover:scale-[1.02]"
                       >
                         Playground
                       </Link>
