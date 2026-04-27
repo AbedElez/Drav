@@ -67,17 +67,17 @@ export default function HomePage() {
         </div>
         
         <div className="text-center mb-16">
-                  <div className="flex items-center justify-center gap-3 mb-4">
+                  <div className="flex items-center justify-center gap-3 mb-4" aria-label="Drav">
                     <div className="text-4xl text-black dark:text-white font-medium" aria-hidden="true">
                       ▲▼
                     </div>
-                    <h1 className="text-6xl font-medium tracking-tight text-black dark:text-white">
+                    <div className="text-6xl font-medium tracking-tight text-black dark:text-white">
                       DRAV
-                    </h1>
+                    </div>
                   </div>
-          <p className="text-lg text-gray-500 dark:text-gray-400 font-light">
+          <h1 className="text-lg text-gray-500 dark:text-gray-400 font-light">
             Talk to multiple AI at once.
-          </p>
+          </h1>
         </div>
 
         <form onSubmit={onSubmit} className="max-w-2xl mx-auto">
